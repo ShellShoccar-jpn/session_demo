@@ -6,9 +6,6 @@
 #   - nameread (正規化されたCGI変数を取り出す。Open usp Tukubaiコマンド)
 #   - utconv   (UNIX時間との相互変換をする。拙作独自コマンド)
 #   - mkcookie (クライアントに送出するCookie文字列を生成する。拙作独自コマンド)
-#   - mktemp   (mktempコマンドのPOSIXシェルスクリプト移植版。拙作独自コマンド)
-# ・セッションファイルは自動的には消されないので、一定時間たった古い物は
-#   cron等を利用して別途削除すること。
 #
 
 # --- 0)各種定義 -----------------------------------------------------
@@ -27,18 +24,17 @@ session_id=$(printf '%s' "${HTTP_COOKIE:-}"                      |
 # --- 2)セッションIDの有効性検査 -------------------------------------
 session_status='new'                          # デフォルトは「要新規作成」とする
 while :; do
-  # --- セッションID文字列が正しい書式(英数字16文字とした)でないならNG
+  # --- 古いセッションファイルは消しておく
+  touch -t $(date '+%Y%m%d%H%M%S'                  |
+             "$Dir_MINE/utconv"                    |
+             awk "{print \$1-$SESSION_LIFETIME-1}" |
+             "$Dir_MINE/utconv" -r                 |
+             awk 'sub(/..$/,".&")'                 ) $Tmp-session_expire
+  find "$Dir_SESSION" \( \! -newer $Tmp-session_expire \) | xargs rm -f
+  # --- セッションID文字列がない or 不正な書式なら「新規作成」判定
   printf '%s' "$session_id" | grep -q '^[A-Za-z0-9]\{16\}$' || break
-  # --- セッションID文字列で指定されたファイルが存在しないならNG
-  [ -f "$Dir_SESSION/$session_id" ] || break
-  # --- ファイルが存在しても古すぎだったらNG
-  touch -t $(date '+%Y%m%d%H%M%s'                |
-             "$Dir_MINE/utconv"                  |
-             awk "{print \$1-$SESSION_LIFETIME}" |
-             "$Dir_MINE/utconv" -r               |
-             awk 'sub(/..$/,".&")'               ) $Tmp-session_expire
-  find "$Dir_SESSION" -name "$session_id" -newer $Tmp-session_expire | awk 'END{exit (NR!=0)}'
-  [ $? -eq 0 ] || { session_status='expired'; break; }
+  # --- セッションID文字列で指定されたファイルが存在しないなら「期限切れ」判定
+  [ -f "$Dir_SESSION/$session_id" ] || { session_status='expired'; break; }
   # --- これらの検査に全て合格したら使う
   session_status='exist'
   break
