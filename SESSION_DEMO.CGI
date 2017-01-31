@@ -1,4 +1,4 @@
-#! /bin/sh
+#!/bin/sh
 #
 # シェルスクリプトでHTTPセッションを張るテスト
 # ・このシェルスクリプトを動かすには、標準UNIXコマンド以外に下記のものが必要
@@ -14,6 +14,7 @@ Dir_SESSION="$Dir_MINE/SESSIONS" # セッションファイル置き場
 Tmp=/tmp/tmp.$$                  # テンポラリーファイルの基本名定義
 SESSION_LIFETIME=60              # セッションの有効期限(1分にしてみた)
 COOKIE_LIFETIME=120              # Cookieの有効期限(2分にしてみた)
+export PATH="$(command -p getconf PATH):${PATH:-}"
 
 # --- 1)CookieからセッションIDを読み取る -----------------------------
 session_id=$(printf '%s' "${HTTP_COOKIE:-}"                      |
@@ -73,9 +74,15 @@ cat <<-HTTP_RESPONSE
 	<html>
 	<head>
 	  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+	  <style type="text/css">
+	    <!-- 
+	    #shellshoccar_label {float:right; margin:0.5em 0 0 0; padding:0; }
+	    -->
+	  </style>
 	  <title>シェルスクリプトでセッション管理をするサンプル</title>
 	</head>
 	<body>
+	  <div id="shellshoccar_label"><img src="ShellShoccar_logo.gif" alt="ShellShoccar logo"></div>
 	  <h1>シェルスクリプトでセッション管理をするサンプル</h1>
 	  <p><strong>$msg</strong></p>
 	  <ul style="border: 1px #808080 solid; line-height: 1.5em">

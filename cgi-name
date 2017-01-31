@@ -1,58 +1,58 @@
 #! /bin/sh
 
 # designed by Nobuaki Tounaka
-# written by 321516
+# written by richmikan
 
 # print the usage and exit
 print_usage_and_exit () {
-  cat <<-__USAGE 1>&2
-	Usage   : ${0##*/} [-d<c>] [-i<string>] [--template <html>] <param_file>
-	Version : Thu Jun 25 04:31:51 JST 2015
-	        : Open usp Tukubai (POSIX.1 Bourne Shell/POSIX.1 commands/UTF-8)
-__USAGE
+  cat <<-USAGE 1>&2
+	Usage   : ${0##*/} [-e<c>] [-s<c>] [-n<string>] [--template <html>] <param_file>
+	Version : 2017-01-31 13:57:29 JST
+	        : Open usp Tukubai (POSIX.1 Bourne Shell/POSIX.1 commands)
+	USAGE
   exit 1
 }
 
 # initialize
 set -u
-PATH='/usr/bin:/bin'
-IFS=$(printf ' \t\n_'); IFS=${IFS%_}
-export IFS LANG=C LC_ALL=C PATH
-dopt=''
-dopt_is_set=0
-iopt=''
+export LC_ALL=C
+export PATH="$(command -p getconf PATH):${PATH:-}"
+eopt=''
+eopt_is_set=0
+sopt=''
+sopt_is_set=0
+nopt=''
 tmplfile=''
 tmplvars=''
 tmpl_file=''
 param_file=''
 use_stdin=0
-LF=$(printf '\134\n_'); LF=${LF%_}
+LFs=$(printf '\\\n_'); LFs=${LFs%_}
 
 # parse arguments
-case $# in [^0]*)
+case $# in [!0]*)
   optmode=''
   i=0
   for arg in "$@"; do
     i=$((i+1))
-    if [ -z "$optmode" ]; then
+    case "$optmode" in '')
       case "$arg" in
-        -d*)
-          dopt_is_set=1
-          optmode='d'
-          if [ -n "${arg#-d}" ]; then
-            arg=${arg#-d}
-          else
-            optmode=''
-            continue
-          fi
+        -e*)
+          optmode='e'
+          s=$(printf '%s' "${arg#??}_" | dd bs=1 count=2 2>/dev/null)
+          arg=${s%?}
+          eopt_is_set=1
           ;;
-        -i*)
-          optmode='i'
-          if [ -n "${arg#-i}" ]; then
-            arg=${arg#-i}
-          else
-            continue
-          fi
+        -[sd]*)
+          optmode='s'
+          s=$(printf '%s' "${arg#??}_" | dd bs=1 count=2 2>/dev/null)
+          arg=${s%?}
+          sopt_is_set=1
+          ;;
+        -[ni]*)
+          optmode='n'
+          arg=${arg#-[ni]}
+          case "$arg" in '') continue;; esac
           ;;
         --template)
           optmode='tmpl'
@@ -63,158 +63,167 @@ case $# in [^0]*)
           optmode='param'
           ;;
       esac
-    fi
+      ;;
+    esac
     case "$optmode" in
-      d)
-        dopt=$arg
-        optmode=''
-        ;;
-      i)
-        iopt=$arg
-        optmode=''
-        ;;
-      tmpl)
-        tmpl_file=$arg
-        optmode=''
-        ;;
-      param)
-        param_file=$arg
-        optmode=''
-        ;;
+      e)     eopt=$arg
+             optmode=''
+             ;;
+      s)     sopt=$arg
+             optmode=''
+             ;;
+      n)     nopt=$arg
+             optmode=''
+             ;;
+      tmpl)  tmpl_file=$arg
+             optmode=''
+             ;;
+      param) param_file=$arg
+             optmode=''
+             ;;
     esac
   done
   ;;
 esac
-if [ -z "$param_file" ]; then
-  param_file='-'
-fi
-if [ \( "_$param_file" = '_-'               \) -o \
-     \( "_$param_file" = '_/dev/stdin'      \) -o \
-     \( "_$param_file" = '_/dev/fd/0'       \) -o \
-     \( "_$param_file" = '_/proc/self/fd/0' \)    ]
-then
-  use_stdin=$((use_stdin+1))
-fi
-if [ \( "_$tmpl_file" = '_-'               \) -o \
-     \( "_$tmpl_file" = '_/dev/stdin'      \) -o \
-     \( "_$tmpl_file" = '_/dev/fd/0'       \) -o \
-     \( "_$tmpl_file" = '_/proc/self/fd/0' \)    ]
-then
-  use_stdin=$((use_stdin+1))
-fi
-if [ $use_stdin -gt 1 ]; then
-  print_usage_and_exit
-fi
+case "$param_file" in '') param_file='-';; esac
+case "$param_file" in '-'|'/dev/stdin'|'/dev/fd/0'|'/proc/self/fd/0')
+  use_stdin=$((use_stdin+1));;
+esac
+case "$tmpl_file"  in '-'|'/dev/stdin'|'/dev/fd/0'|'/proc/self/fd/0')
+  use_stdin=$((use_stdin+1));;
+esac
+if [ $use_stdin -gt 1 ]; then print_usage_and_exit; fi
 case "$tmpl_file"  in ''|-|/*|./*|../*) :;; *)  tmpl_file="./$tmpl_file" ;; esac
 case "$param_file" in ''|-|/*|./*|../*) :;; *) param_file="./$param_file";; esac
-if [ \( ! -f "$param_file"     \) -a \
-     \( ! -c "$param_file"     \) -a \
-     \( ! -p "$param_file"     \) -a \
-     \( "_$param_file" != '_-' \)    ]
-then
+[ ! -f "$param_file"     ] &&
+[ ! -c "$param_file"     ] &&
+[ ! -p "$param_file"     ] &&
+[ "_$param_file" != '_-' ] && {
   print_usage_and_exit
-fi
-if [ \( ! -r "$param_file" \) -a \( "_$param_file" != '_-' \) ]; then
+}
+[ ! -r "$param_file" ] && [ "_$param_file" != '_-' ] && {
   printf '%s\n' "${0##*/}: Cannot open the file as a param_file" 1>&2
   exit 1
-fi
+}
 
 # operate the --template option
-if [ \( -f "$tmpl_file"      \) -o \
-     \( -c "$tmpl_file"      \) -o \
-     \( -p "$tmpl_file"      \) -o \
-     \( "_$tmpl_file" = '_-' \)    ]
+if [ -f "$tmpl_file"      ] ||
+   [ -c "$tmpl_file"      ] ||
+   [ -p "$tmpl_file"      ] ||
+   [ "_$tmpl_file" = '_-' ]   ;
 then
-  if [ \( ! -r "$tmpl_file" \) -a \( "_$tmpl_file" != '_-' \) ]; then
+  [ ! -r "$tmpl_file" ] && [ "_$tmpl_file" != '_-' ] && {
     printf '%s\n' "${0##*/}: Cannot open the file as a template file" 1>&2
     exit 1
-  fi
+  }
   tmplvars=$(cat "$tmpl_file"                                               |
              tr '\r\n' '  '                                                 |
-             sed 's/\(<[Ii][Nn][Pp][Uu][Tt] [^>]*>\)/'"$LF"'\1'"$LF"'</g'   |
-             grep -i '<input '                                              |
+             grep ^                                                         |
+             sed 's/\(<[Ii][Nn][Pp][Uu][Tt] [^>]*>\)/'"$LFs"'\1'"$LFs"'</g' |
+             grep     '<[Ii][Nn][Pp][Uu][Tt] '                              |
              grep -iE ' type=["'"'"']?(radio\>|checkbox\>)'                 |
              grep -iE ' name="[^"]*"| name='"'"'[^'"'"']*'"'"'| name=[^ ] ' |
              sed 's/^.*[Nn][Aa][Mm][Ee]="\([^"]*\)".*$/\1/'                 |
              sed 's/^.*[Nn][Aa][Mm][Ee]='"'"'\([^'"'"']*\)'"'"'.*$/\1/'     |
              sed 's/^.*[Nn][Aa][Mm][Ee]=\([^ ]*\) .*$/\1/'                  |
-             grep -v '[^][A-Za-z0-9_.:-]'                                   |
+             grep -v  '[^][A-Za-z0-9_.:-]'                                  |
              sort                                                           |
              uniq                                                           |
              tr '\n' ' '                                                    |
-             sed 's/ $//'                                                   )
+             sed 's/ $//' 2>/dev/null || :                                  )
 elif [ -n "$tmpl_file" ]; then
   print_usage_and_exit
 fi
 
 # transfer the CGI variables string to the "cgi-name format"
-export v1=$dopt
-export v2=$iopt
-export v3=$dopt_is_set
-export v4=$tmplvars
-cat "$param_file"                                      |
-sed 's/\(%[0-9A-Fa-f][0-9A-Fa-f]\)/'"$LF"'\1'"$LF"'/g' |
-sed '/^%/y/abcdef/ABCDEF/'                             |
-tr -d '\n'                                             |
-sed 's/%0D%0A/\\n/g'                                   |
-sed 's/&/'"$LF"'/g'                                    |
-sed 's/+/ /'                                           |
-grep '^[^=]\{1,\}='                                    |
+export   eopt eopt_is_set   sopt sopt_is_set   nopt   tmplvars
+cat "$param_file"                                                    |
+sed 's/\(%[0-9A-Fa-f][0-9A-Fa-f]\)/'"$LFs"'\1'"$LFs"'/g' 2>/dev/null |
+sed '/^%/y/abcdef/ABCDEF/'                                           |
+tr -d '\n'                                                           |
+grep ^                                                               |
+case $eopt_is_set in                                                 #
+  0) cat                                 ;;                          #
+  *) sed 's/%5C/\\/g' | sed 's/\\/\\\\/g';;                          #
+esac                                                                 |
+sed 's/%0D%0A/\\n/g'                                                 |
+sed 's/&/'"$LFs"'/g'                                                 |
+sed 's/+/ /g'                                                        |
+grep '^[^=]\{1,\}='                                                  |
 exec awk '
 BEGIN {
   for (i = 0; i < 256; i++) {
     s = sprintf("%02X",i);
     chr[s] = sprintf("%c",i);
   }
-  dopt        = ENVIRON["v1"];
-  iopt        = ENVIRON["v2"];
-  dopt_is_set = ENVIRON["v3"];
-  tmplvars    = ENVIRON["v4"];
+  eopt        = ENVIRON["eopt"       ];
+  eopt_is_set = ENVIRON["eopt_is_set"];
+  if (eopt_is_set==1 && eopt=="") {eopt="\\";}
+  sopt        = ENVIRON["sopt"       ];
+  sopt_is_set = ENVIRON["sopt_is_set"];
+  nopt        = ENVIRON["nopt"       ];
+  tmplvars    = ENVIRON["tmplvars"   ];
   split(tmplvars, array0);
-  for (var in array0) {
-    tmplvar[array0[var]]="";
-    delete array0[var];
-  }
-  FS = "=";
+  for (var in array0) { tmplvar[array0[var]]=""; }
+  split("", array0);
 }
 {
-  str1 = substr($0, index($0,"=")+1);
-  str2 = "";
-  while (match(str1,/%[0-9A-F][0-9A-F]/)) {
-    hex  = substr(str1, RSTART+1, 2);
-    str2 = str2 substr(str1, 1, RSTART-1) chr[hex];
-    str1 = substr(str1, RSTART+3);
-  }
-  str2 = str2 str1;
+  # separate key and value(contains %XX)
+  i    = index($0,"=");
+  key  = substr($0,1  ,i-1);
+  val0 = substr($0,i+1    );
+  val  = "";
 
-  if (length(str2) == 0 && length(iopt)) {
-    str2 = iopt;
-  } else if (dopt_is_set != 0)  {
-    s = "";
-    while (match(str2,/ /)) {
-      s = s substr(str2, 1, RSTART-1) dopt;
-      str2 = substr(str2, RSTART+1);
-    }
-    str2 = s str2;
+  # convert the value(contains %XX) into the value (not contains %XX)
+  while (match(val0,/%[0-9A-F][0-9A-F]/)) {
+    hex  = substr(val0, RSTART+1, 2);
+    val  = val substr(val0, 1, RSTART-1) chr[hex];
+    val0 = substr(val0, RSTART+3);
   }
-  if ($1 in tmplvar) {
-    delete tmplvar[$1];
-  }
-  if (length(str2) > 0) {
-    print $1, str2;
+  val = val val0;
+
+  # treat the val for option "-e", "-s", "-n"
+  if (val == "") {
+    # [A] val is null
+    # 1) set default value (nopt) if the val is not set and nopt is set
+    if (nopt != "") {val=nopt;}
   } else {
-    print $1;
+    # [B] val is set
+    # 1) escape the charater which is set by eopt if eopt is set
+    if ((eopt_is_set) && (eopt!="\\")) {
+      s = "";
+      while (1) {
+        i   = index(val,eopt);
+        if (i==0) {break;}
+        s   = s substr(val, 1  , i-1) "\\" eopt;
+        val =   substr(val, i+1     )          ;
+      }
+      val = s val;
+    }
+    # 2) replace " " into the string which is set by sopt if sopt is set
+    if (sopt_is_set) {
+      s = "";
+      while (1) {
+        i   = index(val," ");
+        if (i==0) {break;}
+        s   = s substr(val, 1  , i-1) sopt;
+        val =   substr(val, i+1     )     ;
+      }
+      val = s val;
+    }
   }
+
+  # delete the key from complement keys for the option "--template"
+  if (key in tmplvar) {delete tmplvar[key];}
+
+  # print key and value
+  if (val!="") {print key, val;} else {print key;}
 }
 END {
-  if (length(iopt) > 0) {
-    for (var in tmplvar) {
-      print var, iopt;
-    }
+  if (nopt != "") {
+    for (var in tmplvar) {print var, nopt;}
   } else {
-    for (var in tmplvar) {
-      print var;
-    }
+    for (var in tmplvar) {print var      ;}
   }
 }
 '
