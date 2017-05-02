@@ -1,33 +1,82 @@
-#! /bin/sh
+#!/bin/sh
 
-# designed by Nobuaki Tounaka
-# written by richmikan
+######################################################################
+#
+# NAMEREAD - A Key-Value Format (Unicage "Name Format") Data Reader
+#
+# USAGE: nameread [options] <name> <name_file>
+#
+#        <name> ...... key name you want to get
+#        <name_file> . Key-Value Format (Unicage "Name Format") text data file
+#        -e .......... Regards <name> as a regexp (ERE) string
+#        -l .......... Prints not only value but also key (=variable) name
+#        -s<c> ....... Replaces all of the space " "s in value part of
+#                      strings with <c>
+#        -n<string> .. Gives <string> as the value if its value part of
+#                      CGI variables is nothing
+#
+# Designed originally by Nobuaki Tounaka
+# Written by Shell-Shoccar Japan (@shellshoccarjpn) on 2017-03-05
+#
+# This is a public-domain software (CC0). It means that all of the
+# people can use this for any purposes with no restrictions at all.
+# By the way, We are fed up with the side effects which are brought
+# about by the major licenses.
+#
+######################################################################
 
-# print the usage and exit
-print_usage_and_exit () {
-  cat <<-__USAGE 1>&2
-	Usage   : ${0##*/} [-el] [-s<c>] [-n<string>] <name> <name_file>
-	Version : 2017-01-31 14:20:40 JST
-	        : Open usp Tukubai (POSIX.1 Bourne Shell/POSIX.1 commands)
-__USAGE
-  exit 1
-}
 
-# initialize
+######################################################################
+# Initial Configuration
+######################################################################
+
+# === Initialize shell environment ===================================
 set -u
 umask 0022
 export LC_ALL=C
-export PATH="$(command -p getconf PATH):${PATH:-}"
-sopt=''
-sopt_is_set=0
-nopt=''
-eopt_is_set=0
-lopt_is_set=0
-name=''
-name_file=''
+export PATH="$(command -p getconf PATH)${PATH:+:}${PATH:-}"
+
+# === Define the functions for printing usage and error message ======
+print_usage_and_exit () {
+  cat <<-USAGE 1>&2
+	Usage   : ${0##*/} [options] <name> <name_file>
+	Args    : <name> ...... key name you want to get
+	          <name_file> . Key-Value Format (Unicage "Name Format") text data file
+	Options : -e .......... Regards <name> as a regexp (ERE) string
+	          -l .......... Prints not only value but also key (=variable) name
+	          -s<c> ....... Replaces all of the space " "s in value part of
+	                        strings with <c>
+	          -n<string> .. Gives <string> as the value if its value part of
+	                        CGI variables is nothing
+	Version : 2017-03-05 04:49:02 JST
+	          Open usp Tukubai (POSIX Bourne Shell/POSIX commands)
+	USAGE
+  exit 1
+}
+error_exit() {
+  ${2+:} false && echo "${0##*/}: $2" 1>&2
+  exit $1
+}
+
+# === Define some chrs. to escape some special chrs. temporarily =====
 TAB=$(printf '\t')
 
-# parse arguments
+
+######################################################################
+# Parse Arguments
+######################################################################
+
+# === Get the options and the filepath ===============================
+# --- initialize option parameters -----------------------------------
+opts=''
+opts_is_set=0
+optn=''
+opte_is_set=0
+optl_is_set=0
+name=''
+name_file=''
+#
+# --- get them -------------------------------------------------------
 [ $# -ge 1 ] || print_usage_and_exit
 optmode=''
 i=0
@@ -63,16 +112,16 @@ for arg in "$@"; do
               }')
         ret1=${ret%% *}
         ret2=${ret#* }
-        case "$ret1" in *e*) eopt_is_set=1;; esac
-        case "$ret1" in *l*) lopt_is_set=1;; esac
+        case "$ret1" in *e*) opte_is_set=1;; esac
+        case "$ret1" in *l*) optl_is_set=1;; esac
         case "$ret1" in *n*) case "$ret2" in
                                '') optmode='n';;
-                                *) nopt=$ret2 ;;
+                                *) optn=$ret2 ;;
                              esac
                              ;;
         esac
-        case "$ret1" in *s*) sopt=$ret2
-                             sopt_is_set=1
+        case "$ret1" in *s*) opts=$ret2
+                             opts_is_set=1
                              ;;
         esac
         ;;
@@ -89,12 +138,14 @@ for arg in "$@"; do
         ;;
     esac
   elif [ "$optmode" = 'n' ]; then
-    nopt=$arg
+    optn=$arg
     optmode=''
   else
     print_usage_and_exit
   fi
 done
+
+# === Validate the arguments =========================================
 case "$name" in '') print_usage_and_exit;; esac
 if [ -z "$name_file" ]; then
   name_file='-'
@@ -106,47 +157,58 @@ then
   print_usage_and_exit
 fi
 if [ ! -r "$name_file" ] && [ "_$name_file" != '_-' ]; then
-  printf '%s: Cannot open the file\n' "${0##*/}" 1>&2
+  error_exit 1 'Cannot open the file'
   exit 1
 fi
 case "$name_file" in ''|-|/*|./*|../*) :;; *) file="./$name_file";; esac
 
-#
+
+######################################################################
+# Prepare for the Main Routine
+######################################################################
+
+# === Generate the AWK code for nameread operation ===================
 awk_code='
 BEGIN {
-  eopt_is_set = ENVIRON["eopt_is_set"];
-  lopt_is_set = ENVIRON["lopt_is_set"];
-  nopt        = ENVIRON["nopt"       ];
-  sopt        = ENVIRON["sopt"       ];
-  sopt_is_set = ENVIRON["sopt_is_set"];
+  opte_is_set = ENVIRON["opte_is_set"];
+  optl_is_set = ENVIRON["optl_is_set"];
+  optn        = ENVIRON["optn"       ];
+  opts        = ENVIRON["opts"       ];
+  opts_is_set = ENVIRON["opts_is_set"];
   target_name = ENVIRON["name"       ];
 }
 {
   i = index($0," ");
   name = (i > 1) ? $1 : (length($0)>0) ? $0 : "";
-  if (eopt_is_set == 0 && name != target_name) {
+  if (opte_is_set == 0 && name != target_name) {
     next;
   }
   var = (i > 0) ? substr($0,i+1) : "";
-  if (length(var) == 0 && length(nopt)) {
-    var = nopt;
-  } else if (sopt_is_set != 0)  {
+  if (length(var) == 0 && length(optn)) {
+    var = optn;
+  } else if (opts_is_set != 0)  {
     s = "";
     while (match(var,/ /)) {
-      s = s substr(var, 1, RSTART-1) sopt;
+      s = s substr(var, 1, RSTART-1) opts;
       var = substr(var, RSTART+1);
     }
     var = s var;
   }
-  if (lopt_is_set) {
+  if (optl_is_set) {
     print name, var;
   } else {
     print var;
   }
 }
 '
-case $eopt_is_set in
-  0) export   eopt_is_set   lopt_is_set   nopt   sopt sopt_is_set   name
+
+
+######################################################################
+# Main Routine
+######################################################################
+
+case $opte_is_set in
+  0) export   opte_is_set   optl_is_set   optn   opts opts_is_set   name
      exec awk "$awk_code" "$name_file"
      ;;
   *) case "${name#^}" in "$name") name="[^$TAB ]*${name}";;
@@ -155,7 +217,7 @@ case $eopt_is_set in
      case "${name#$}" in "$name") name="${name}[^$TAB ]*";;
                                *) name="${name%$}"       ;;
      esac
-     export   eopt_is_set   lopt_is_set   nopt   sopt sopt_is_set   name
+     export   opte_is_set   optl_is_set   optn   opts opts_is_set   name
      grep -E "^${name}([$TAB ]+.*|)\$" "$name_file" |
      exec awk "$awk_code"
      ;;
